@@ -4,7 +4,8 @@
 use crate::{
     db_tool::{execute_db_tool_command, print_db_all_tables, DbToolCommand},
     get_object, get_transaction_block, make_clients, restore_from_db_checkpoint,
-    ConciseObjectOutput, GroupedObjectOutput, VerboseObjectOutput,
+    state_sync_from_archive, state_sync_from_archive_unordered, ConciseObjectOutput,
+    GroupedObjectOutput, VerboseObjectOutput,
 };
 use anyhow::Result;
 use std::path::PathBuf;
@@ -18,6 +19,7 @@ use clap::*;
 use fastcrypto::encoding::Encoding;
 use sui_config::Config;
 use sui_core::authority_aggregator::AuthorityAggregatorBuilder;
+use sui_storage::object_store::{ObjectStoreConfig, ObjectStoreType};
 use sui_types::messages_checkpoint::{
     CheckpointRequest, CheckpointResponse, CheckpointSequenceNumber,
 };
@@ -114,6 +116,27 @@ pub enum ToolCommand {
         db_path: String,
         #[clap(subcommand)]
         cmd: Option<DbToolCommand>,
+    },
+
+    /// Tool to sync the node from archive store
+    #[clap(name = "sync-from-archive")]
+    SyncFromArchive {
+        #[clap(long = "genesis")]
+        genesis: PathBuf,
+        #[clap(long = "db-path")]
+        db_path: PathBuf,
+        #[clap(long = "bucket")]
+        bucket: String,
+        #[clap(long = "access-key")]
+        access_key: String,
+        #[clap(long = "secret-key")]
+        secret_key: String,
+        #[clap(long = "region")]
+        region: String,
+        #[clap(long = "num-connections")]
+        num_connections: usize,
+        #[clap(long = "download-concurrency")]
+        download_concurrency: usize,
     },
 
     #[clap(name = "dump-validators")]
@@ -293,6 +316,33 @@ impl ToolCommand {
                     Some(c) => execute_db_tool_command(path, c)?,
                     None => print_db_all_tables(path)?,
                 }
+            }
+            ToolCommand::SyncFromArchive {
+                genesis,
+                db_path,
+                bucket,
+                access_key,
+                secret_key,
+                region,
+                num_connections,
+                download_concurrency,
+            } => {
+                let object_store_config = ObjectStoreConfig {
+                    object_store: Some(ObjectStoreType::S3),
+                    bucket: Some(bucket),
+                    aws_secret_access_key: Some(secret_key),
+                    aws_access_key_id: Some(access_key),
+                    aws_region: Some(region),
+                    object_store_connection_limit: num_connections,
+                    ..Default::default()
+                };
+                state_sync_from_archive_unordered(
+                    &db_path,
+                    &genesis,
+                    object_store_config,
+                    download_concurrency,
+                )
+                .await?;
             }
             ToolCommand::DumpValidators { genesis, concise } => {
                 let genesis = Genesis::load(genesis).unwrap();
