@@ -194,8 +194,13 @@ impl ReadApi {
 
         let state = self.state.clone();
         let digests_clone = digests.clone();
+        // TODO: this is reading from a deprecated DB. The replacement DB however
+        // is in the epoch store, and thus we risk breaking the read API for txes
+        // from old epochs. Should be migrated once we have indexer support, or
+        // when we can tolerate returning None for old txes.
         let checkpoint_seq_list =
             state
+            .database
             .multi_get_transaction_checkpoint(&digests_clone)
             .tap_err(
                 |err| debug!(digests=?digests_clone, "Failed to multi get checkpoint sequence number: {:?}", err))?;
@@ -651,12 +656,17 @@ impl ReadApiServer for ReadApi {
             }
 
             let state = self.state.clone();
-            if let Some((_, seq)) = spawn_monitored_task!(async move{
-            state.get_transaction_checkpoint_sequence(&digest)
-            .map_err(|e| {
-                error!("Failed to retrieve checkpoint sequence for transaction {digest:?} with error: {e:?}");
-                Error::from(e)
-            })}).await.map_err(Error::from)??
+            if let Some((_, seq)) = spawn_monitored_task!(async move {
+                // TODO: this is reading from a deprecated DB. The replacement DB however
+                // is in the epoch store, and thus we risk breaking the read API for txes
+                // from old epochs. Should be migrated once we have indexer support, or 
+                // when we can tolerate returning None for old txes.
+                state.database.get_transaction_checkpoint(&digest)
+                    .map_err(|e| {
+                        error!("Failed to retrieve checkpoint sequence for transaction {digest:?} with error: {e:?}");
+                        Error::from(e)
+                    })
+            }).await.map_err(Error::from)??
         {
             temp_response.checkpoint_seq = Some(seq);
         }

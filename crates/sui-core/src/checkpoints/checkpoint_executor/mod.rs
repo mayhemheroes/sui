@@ -49,8 +49,10 @@ use tokio_stream::StreamExt;
 use tracing::{debug, error, info, instrument, trace, warn};
 use typed_store::Map;
 
-use crate::authority::authority_per_epoch_store::AuthorityPerEpochStore;
-use crate::authority::AuthorityStore;
+use crate::authority::{
+    authority_per_epoch_store::AuthorityPerEpochStore, epoch_start_configuration::EpochFlag,
+};
+use crate::authority::{epoch_start_configuration::EpochStartConfigTrait, AuthorityStore};
 use crate::state_accumulator::StateAccumulator;
 use crate::transaction_manager::TransactionManager;
 use crate::{authority::EffectsNotifyRead, checkpoints::CheckpointStore};
@@ -980,11 +982,21 @@ fn finalize_checkpoint(
     accumulator: Arc<StateAccumulator>,
     effects: Vec<TransactionEffects>,
 ) -> SuiResult {
+    if epoch_store
+        .epoch_start_config()
+        .flags()
+        .contains(&EpochFlag::PerEpochFinalizedTransactions)
+    {
+        epoch_store.insert_finalized_transactions(tx_digests, checkpoint_sequence)?;
+    }
+
+    // TODO remove once we no longer need to support this table for read RPC
     authority_store.insert_finalized_transactions(
         tx_digests,
         epoch_store.epoch(),
         checkpoint_sequence,
     )?;
+
     accumulator.accumulate_checkpoint(effects, checkpoint_sequence, epoch_store)?;
     Ok(())
 }

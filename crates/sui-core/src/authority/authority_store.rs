@@ -407,6 +407,7 @@ impl AuthorityStore {
         Ok(result)
     }
 
+    // DEPRECATED -- use function of same name in AuthorityPerEpochStore
     pub fn insert_finalized_transactions(
         &self,
         digests: &[TransactionDigest],
@@ -426,6 +427,7 @@ impl AuthorityStore {
         Ok(())
     }
 
+    // DEPRECATED -- use function of same name in AuthorityPerEpochStore
     pub fn is_transaction_executed_in_checkpoint(
         &self,
         digest: &TransactionDigest,
@@ -436,6 +438,7 @@ impl AuthorityStore {
             .contains_key(digest)?)
     }
 
+    // DEPRECATED -- use function of same name in AuthorityPerEpochStore
     pub fn get_transaction_checkpoint(
         &self,
         digest: &TransactionDigest,
@@ -446,6 +449,7 @@ impl AuthorityStore {
             .get(digest)?)
     }
 
+    // DEPRECATED -- use function of same name in AuthorityPerEpochStore
     pub fn multi_get_transaction_checkpoint(
         &self,
         digests: &[TransactionDigest],
