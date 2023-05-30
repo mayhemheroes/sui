@@ -40,6 +40,7 @@ const MAX_PROTOCOL_VERSION: u64 = 12;
 // Version 12: Changes to deepbook in framework to add API for querying marketplace.
 //             Change NW Batch to use versioned metadata field.
 //             Changes to sui-system package to add PTB-friendly unstake function.
+//             Add reordering of user transactions by gas price after consensus.
 
 #[derive(Copy, Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProtocolVersion(u64);
@@ -480,6 +481,10 @@ pub struct ProtocolConfig {
     /// can happen automatically. 10000bps would indicate that complete unanimity is required (all
     /// 3f+1 must vote), while 0bps would indicate that 2f+1 is sufficient.
     buffer_stake_for_protocol_upgrade_bps: Option<u64>,
+
+    /// What version of reordering algorithm we are using for user transactions included in a Narwhal
+    /// commit in consensus handler.
+    consensus_user_transaction_reordering_version: Option<u64>,
 
     // === Native Function Costs ===
 
@@ -1080,6 +1085,9 @@ impl ProtocolConfig {
                 max_move_identifier_len: None,
                 max_move_value_depth: None,
 
+                // At the beginning, we don't reorder user transactions.
+                consensus_user_transaction_reordering_version: None,
+
                 // When adding a new constant, set it to None in the earliest version, like this:
                 // new_constant: None,
             },
@@ -1171,6 +1179,7 @@ impl ProtocolConfig {
                 if chain != Chain::Mainnet {
                     cfg.feature_flags.commit_root_state_digest = true;
                 }
+                cfg.consensus_user_transaction_reordering_version = Some(1);
                 cfg
             }
             // Use this template when making changes:
