@@ -50,6 +50,10 @@ pub struct ConfigBuilder<R = OsRng> {
     genesis_config: Option<GenesisConfig>,
     reference_gas_price: Option<u64>,
     additional_objects: Vec<Object>,
+    /// Whether we are building configs for testing. Default to true.
+    /// When we build configs for deployment (either local or remote), set it to false.
+    /// When this is false, we use more realistic parameters (especially for Narwhal).
+    for_testing: bool,
 }
 
 impl ConfigBuilder {
@@ -62,6 +66,7 @@ impl ConfigBuilder {
             genesis_config: None,
             reference_gas_price: None,
             additional_objects: vec![],
+            for_testing: true,
         }
     }
 
@@ -144,6 +149,11 @@ impl<R> ConfigBuilder<R> {
         self
     }
 
+    pub fn for_deploy(mut self) -> Self {
+        self.for_testing = false;
+        self
+    }
+
     pub fn rng<N: rand::RngCore + rand::CryptoRng>(self, rng: N) -> ConfigBuilder<N> {
         ConfigBuilder {
             rng: Some(rng),
@@ -153,6 +163,7 @@ impl<R> ConfigBuilder<R> {
             genesis_config: self.genesis_config,
             reference_gas_price: self.reference_gas_price,
             additional_objects: self.additional_objects,
+            for_testing: self.for_testing,
         }
     }
 
@@ -282,6 +293,9 @@ impl<R: rand::RngCore + rand::CryptoRng> ConfigBuilder<R> {
                         }
                     };
                     builder = builder.with_supported_protocol_versions(supported_versions);
+                }
+                if !self.for_testing {
+                    builder = builder.for_deploy();
                 }
                 builder.build(validator, genesis.clone())
             })

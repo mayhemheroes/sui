@@ -8,6 +8,7 @@ use fastcrypto::traits::KeyPair;
 use narwhal_config::{NetworkAdminServerParameters, PrometheusMetricsParameters};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::time::Duration;
 use sui_config::node::{
     default_enable_index_processing, default_end_of_epoch_broadcast_channel_capacity,
     AuthorityKeyPairWithPath, AuthorityStorePruningConfig, DBCheckpointConfig,
@@ -21,6 +22,7 @@ use sui_config::{
 };
 use sui_protocol_config::SupportedProtocolVersions;
 use sui_types::crypto::{AuthorityKeyPair, AuthorityPublicKeyBytes, SuiKeyPair};
+use sui_types::multiaddr::Multiaddr;
 
 /// This builder contains information that's not included in ValidatorGenesisConfig for building
 /// a validator NodeConfig. It can be used to build either a genesis validator or a new validator.
@@ -28,6 +30,10 @@ use sui_types::crypto::{AuthorityKeyPair, AuthorityPublicKeyBytes, SuiKeyPair};
 pub struct ValidatorConfigBuilder {
     config_directory: PathBuf,
     supported_protocol_versions: Option<SupportedProtocolVersions>,
+    /// Whether we are building configs for testing. Default to true.
+    /// When we build configs for deployment (either local or remote), set it to false.
+    /// When this is false, we use more realistic parameters (especially for Narwhal).
+    for_testing: bool,
 }
 
 impl ValidatorConfigBuilder {
@@ -35,6 +41,7 @@ impl ValidatorConfigBuilder {
         Self {
             config_directory,
             supported_protocol_versions: None,
+            for_testing: true,
         }
     }
 
@@ -44,6 +51,11 @@ impl ValidatorConfigBuilder {
     ) -> Self {
         assert!(self.supported_protocol_versions.is_none());
         self.supported_protocol_versions = Some(supported_protocol_versions);
+        self
+    }
+
+    pub fn for_deploy(mut self) -> Self {
+        self.for_testing = false;
         self
     }
 
@@ -70,20 +82,10 @@ impl ValidatorConfigBuilder {
             max_pending_transactions: None,
             max_submit_position: None,
             submit_delay_step_override_millis: None,
-            narwhal_config: narwhal_config::Parameters {
-                network_admin_server: NetworkAdminServerParameters {
-                    primary_network_admin_server_port: local_ip_utils::get_available_port(
-                        &localhost,
-                    ),
-                    worker_network_admin_server_base_port: local_ip_utils::get_available_port(
-                        &localhost,
-                    ),
-                },
-                prometheus_metrics: PrometheusMetricsParameters {
-                    socket_addr: validator.narwhal_metrics_address,
-                },
-                ..Default::default()
-            },
+            narwhal_config: Self::build_narwhal_config(
+                self.for_testing,
+                validator.narwhal_metrics_address,
+            ),
         };
 
         let p2p_config = P2pConfig {
@@ -132,6 +134,39 @@ impl ValidatorConfigBuilder {
             certificate_deny_config: Default::default(),
             state_debug_dump_config: Default::default(),
             state_archive_config: StateArchiveConfig::default(),
+        }
+    }
+
+    fn build_narwhal_config(
+        for_testing: bool,
+        narwhal_metrics_address: Multiaddr,
+    ) -> narwhal_config::Parameters {
+        let localhost = local_ip_utils::localhost_for_testing();
+        let network_admin_server = NetworkAdminServerParameters {
+            primary_network_admin_server_port: local_ip_utils::get_available_port(&localhost),
+            worker_network_admin_server_base_port: local_ip_utils::get_available_port(&localhost),
+        };
+        let prometheus_metrics = PrometheusMetricsParameters {
+            socket_addr: narwhal_metrics_address,
+        };
+        if for_testing {
+            narwhal_config::Parameters {
+                network_admin_server,
+                prometheus_metrics,
+                // NOTE: the following parameters are important to ensure tests run fast. Using the default
+                // Narwhal parameters may result in tests taking >60 seconds.
+                max_header_delay: Duration::from_millis(200),
+                min_header_delay: Duration::from_millis(50),
+                batch_size: 1,
+                ..Default::default()
+            }
+        } else {
+            // Otherwise it's for deployment.
+            narwhal_config::Parameters {
+                network_admin_server,
+                prometheus_metrics,
+                ..Default::default()
+            }
         }
     }
 

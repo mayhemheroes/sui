@@ -28,6 +28,7 @@ pub fn test_authority_configs() -> NetworkConfig {
     test_and_configure_authority_configs(TEST_COMMITTEE_SIZE)
 }
 
+// TODO: Remove this function eventually once all tests use TestCluster.
 pub fn test_and_configure_authority_configs(committee_size: usize) -> NetworkConfig {
     let config_dir = tempfile::tempdir().unwrap().into_path();
     let rng = StdRng::from_seed([0; 32]);
@@ -54,6 +55,7 @@ pub fn test_authority_configs_with_objects<I: IntoIterator<Item = Object> + Clon
     test_and_configure_authority_configs_with_objects(TEST_COMMITTEE_SIZE, objects)
 }
 
+// TODO: Remove this function eventually once all tests use TestCluster.
 pub fn test_and_configure_authority_configs_with_objects<I: IntoIterator<Item = Object> + Clone>(
     committee_size: usize,
     objects: I,
