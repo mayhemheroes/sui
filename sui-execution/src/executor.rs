@@ -50,32 +50,6 @@ pub trait Executor {
         Result<(), ExecutionError>,
     );
 
-    fn execute_system_transaction_to_effects(
-        &self,
-        // Configuration
-        protocol_config: &ProtocolConfig,
-        metrics: Arc<LimitsMetrics>,
-        enable_expensive_checks: bool,
-        certificate_deny_set: &HashSet<TransactionDigest>,
-        // Epoch
-        epoch_id: &EpochId,
-        epoch_timestamp_ms: u64,
-        // Transaction Inputs
-        temporary_store: TemporaryStore,
-        shared_object_refs: Vec<ObjectRef>,
-        gas_status: SuiGasStatus,
-        gas: &[ObjectRef],
-        // Transaction
-        transaction_kind: TransactionKind,
-        transaction_signer: SuiAddress,
-        transaction_digest: TransactionDigest,
-        transaction_dependencies: BTreeSet<TransactionDigest>,
-    ) -> (
-        InnerTemporaryStore,
-        TransactionEffects,
-        Result<(), ExecutionError>,
-    );
-
     fn dev_inspect_transaction(
         &self,
         // Configuration

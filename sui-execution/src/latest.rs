@@ -6,7 +6,6 @@ use std::{
     sync::Arc,
 };
 
-use move_vm_runtime_latest::move_vm::MoveVM;
 use sui_protocol_config::ProtocolConfig;
 use sui_types::{
     base_types::{ObjectRef, SuiAddress, TxContext},
@@ -23,6 +22,7 @@ use sui_types::{
     type_resolver::LayoutResolver,
 };
 
+use move_vm_runtime_latest::move_vm::MoveVM;
 use sui_adapter_latest::adapter::new_move_vm;
 use sui_adapter_latest::execution_engine::execute_transaction_to_effects;
 use sui_adapter_latest::programmable_transactions;
@@ -70,46 +70,6 @@ impl Executor for VM {
         Result<(), ExecutionError>,
     ) {
         execute_transaction_to_effects::<execution_mode::Normal>(
-            shared_object_refs,
-            temporary_store,
-            transaction_kind,
-            transaction_signer,
-            gas,
-            transaction_digest,
-            transaction_dependencies,
-            &self.0,
-            gas_status,
-            epoch_id,
-            epoch_timestamp_ms,
-            protocol_config,
-            metrics,
-            enable_expensive_checks,
-            certificate_deny_set,
-        )
-    }
-
-    fn execute_system_transaction_to_effects(
-        &self,
-        protocol_config: &ProtocolConfig,
-        metrics: Arc<LimitsMetrics>,
-        enable_expensive_checks: bool,
-        certificate_deny_set: &HashSet<TransactionDigest>,
-        epoch_id: &EpochId,
-        epoch_timestamp_ms: u64,
-        temporary_store: TemporaryStore,
-        shared_object_refs: Vec<ObjectRef>,
-        gas_status: SuiGasStatus,
-        gas: &[ObjectRef],
-        transaction_kind: TransactionKind,
-        transaction_signer: SuiAddress,
-        transaction_digest: TransactionDigest,
-        transaction_dependencies: BTreeSet<TransactionDigest>,
-    ) -> (
-        InnerTemporaryStore,
-        TransactionEffects,
-        Result<(), ExecutionError>,
-    ) {
-        execute_transaction_to_effects::<execution_mode::System>(
             shared_object_refs,
             temporary_store,
             transaction_kind,
