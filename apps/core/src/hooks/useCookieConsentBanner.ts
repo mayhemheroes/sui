@@ -11,12 +11,9 @@ export function useCookieConsentBanner<T>(
 ) {
     const { data: productAnalyticsConfig } = useProductAnalyticsConfig();
     useEffect(() => {
-        console.log('CALLING EFFECT');
-
-        if (productAnalyticsConfig?.mustProvideCookieConsent || true) {
+        if (productAnalyticsConfig?.mustProvideCookieConsent) {
             loadCookieConsentBanner(options);
         } else {
-            console.log('PERSISTING');
             // Use cookie storage if the user doesn't have to provide consent
             storageInstance.persist();
         }

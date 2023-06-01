@@ -43,7 +43,6 @@ export function Layout() {
         cookie_name: 'sui_explorer_cookie_consent',
         onAccept: (cookieContent) => {
             if (cookieContent.categories.includes(ANALYTICS_COOKIE_CATEGORY)) {
-                console.log('ON ACCEPT');
                 persistableStorage.persist();
             }
         },
