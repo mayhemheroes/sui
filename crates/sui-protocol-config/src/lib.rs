@@ -202,10 +202,29 @@ struct FeatureFlags {
     // If true, then use the versioned metadata format in narwhal entities.
     #[serde(skip_serializing_if = "is_false")]
     narwhal_versioned_metadata: bool,
+    // How we order transactions coming out of consensus before sending to execution.
+    #[serde(skip_serializing_if = "ConsensusTransactionOrdering::is_none")]
+    consensus_transaction_ordering: ConsensusTransactionOrdering,
 }
 
 fn is_false(b: &bool) -> bool {
     !b
+}
+
+/// Ordering mechanism for transactions in one Narwhal consensus output.
+#[derive(Default, Copy, Clone, Serialize, Debug)]
+pub enum ConsensusTransactionOrdering {
+    /// No ordering. Transactions are processed in the order they appear in the consensus output.
+    #[default]
+    None,
+    /// Order transactions by gas price, highest first.
+    ByGasPrice,
+}
+
+impl ConsensusTransactionOrdering {
+    pub fn is_none(&self) -> bool {
+        matches!(self, ConsensusTransactionOrdering::None)
+    }
 }
 
 /// Constants that change the behavior of the protocol.
@@ -482,10 +501,6 @@ pub struct ProtocolConfig {
     /// 3f+1 must vote), while 0bps would indicate that 2f+1 is sufficient.
     buffer_stake_for_protocol_upgrade_bps: Option<u64>,
 
-    /// What version of reordering algorithm we are using for user transactions included in a Narwhal
-    /// commit in consensus handler.
-    consensus_user_transaction_reordering_version: Option<u64>,
-
     // === Native Function Costs ===
 
     // `address` module
@@ -735,6 +750,10 @@ impl ProtocolConfig {
 
     pub fn no_extraneous_module_bytes(&self) -> bool {
         self.feature_flags.no_extraneous_module_bytes
+    }
+
+    pub fn consensus_transaction_ordering(&self) -> ConsensusTransactionOrdering {
+        self.feature_flags.consensus_transaction_ordering
     }
 }
 
@@ -1085,9 +1104,6 @@ impl ProtocolConfig {
                 max_move_identifier_len: None,
                 max_move_value_depth: None,
 
-                // At the beginning, we don't reorder user transactions.
-                consensus_user_transaction_reordering_version: None,
-
                 // When adding a new constant, set it to None in the earliest version, like this:
                 // new_constant: None,
             },
@@ -1179,7 +1195,8 @@ impl ProtocolConfig {
                 if chain != Chain::Mainnet {
                     cfg.feature_flags.commit_root_state_digest = true;
                 }
-                cfg.consensus_user_transaction_reordering_version = Some(1);
+                cfg.feature_flags.consensus_transaction_ordering =
+                    ConsensusTransactionOrdering::ByGasPrice;
                 cfg
             }
             // Use this template when making changes:
