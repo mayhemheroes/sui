@@ -14,6 +14,7 @@ import Footer from '../footer/Footer';
 import Header from '../header/Header';
 
 import { NetworkContext, useNetwork } from '~/context';
+import { useCookieConsentBanner } from '~/hooks/useCookieConsentBanner';
 import { Banner } from '~/ui/Banner';
 import { DefaultRpcClient, Network } from '~/utils/api/DefaultRpcClient';
 
@@ -33,6 +34,7 @@ export function Layout() {
         enabled: network === Network.MAINNET,
     });
 
+    useCookieConsentBanner();
     usePageView();
 
     return (

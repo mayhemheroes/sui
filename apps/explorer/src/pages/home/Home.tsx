@@ -19,6 +19,7 @@ import { TopPackagesCard } from '~/components/top-packages/TopPackagesCard';
 import { useNetwork } from '~/context';
 import { Card } from '~/ui/Card';
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '~/ui/Tabs';
+import { persistableStorage } from '~/utils/analytics/amplitude';
 import { Network } from '~/utils/api/DefaultRpcClient';
 
 const ValidatorMap = lazy(() => import('../../components/validator-map'));
@@ -45,6 +46,9 @@ function Home() {
                     <SuiTokenCard />
                 </div>
             )}
+            <button type="button" onClick={() => persistableStorage.persist()}>
+                CLICK
+            </button>
             <div style={{ gridArea: 'network' }} className="overflow-hidden">
                 <OnTheNetwork />
             </div>
