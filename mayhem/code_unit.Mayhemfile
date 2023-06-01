@@ -1,0 +1,5 @@
+project: sui
+target: code_unit
+
+cmds:
+  - cmd: /code_unit
