@@ -6,8 +6,9 @@ use futures::future::join_all;
 use move_core_types::ident_str;
 use mysten_metrics::RegistryService;
 use prometheus::Registry;
+use rand::rngs::OsRng;
 use rand::{rngs::StdRng, SeedableRng};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use sui_config::NodeConfig;
@@ -18,6 +19,9 @@ use sui_json_rpc_types::SuiTransactionBlockEffectsAPI;
 use sui_macros::sim_test;
 use sui_node::SuiNodeHandle;
 use sui_protocol_config::ProtocolConfig;
+use sui_swarm_config::genesis_config::{
+    AccountConfig, ValidatorGenesisConfigBuilder, DEFAULT_GAS_AMOUNT,
+};
 use sui_swarm_config::network_config_builder::ConfigBuilder;
 use sui_test_transaction_builder::TestTransactionBuilder;
 use sui_types::base_types::{AuthorityName, ObjectRef, SuiAddress};
@@ -27,10 +31,9 @@ use sui_types::crypto::{
 use sui_types::effects::{CertifiedTransactionEffects, TransactionEffectsAPI};
 use sui_types::error::SuiError;
 use sui_types::gas::GasCostSummary;
+use sui_types::governance::MIN_VALIDATOR_JOINING_STAKE_MIST;
 use sui_types::message_envelope::Message;
-use sui_types::object::{
-    generate_test_gas_objects_with_owner, generate_test_gas_objects_with_owner_and_value, Object,
-};
+use sui_types::object::{generate_test_gas_objects_with_owner_and_value, Object};
 use sui_types::sui_system_state::sui_system_state_inner_v1::VerifiedValidatorMetadataV1;
 use sui_types::sui_system_state::{
     get_validator_from_table, sui_system_state_summary::get_validator_by_pool_id,
@@ -455,67 +458,34 @@ async fn test_validator_resign_effects() {
 
 #[sim_test]
 async fn test_validator_candidate_pool_read() {
-    let new_validator_key = gen_keys(5).pop().unwrap();
-    let new_validator_address: SuiAddress = new_validator_key.public().into();
-
-    let gas_objects =
-        generate_test_gas_objects_with_owner_and_value(4, new_validator_address, 100_000_000_000);
-
-    let init_configs = ConfigBuilder::new_with_temp_dir()
-        .rng(StdRng::from_seed([0; 32]))
-        .with_validator_account_keys(gen_keys(4))
-        .with_objects(gas_objects.clone())
-        .build();
-
-    let new_configs = ConfigBuilder::new_with_temp_dir()
-        .rng(StdRng::from_seed([0; 32]))
-        .with_validator_account_keys(gen_keys(5))
-        .with_objects(gas_objects.clone())
-        .build();
-
-    let gas_objects: Vec<_> = gas_objects
-        .into_iter()
-        .map(|o| init_configs.genesis.object(o.id()).unwrap())
-        .collect();
-
-    // Generate a new validator config.
-    let public_keys: HashSet<_> = init_configs
-        .validator_configs
-        .iter()
-        .map(|config| config.protocol_public_key())
-        .collect();
-    // Node configs contain things such as private keys, which we need to send transactions.
-    let new_node_config = new_configs
-        .validator_configs
-        .iter()
-        .find(|v| !public_keys.contains(&v.protocol_public_key()))
+    let new_validator = ValidatorGenesisConfigBuilder::new().build(&mut OsRng);
+    let address: SuiAddress = (&new_validator.account_key_pair.public()).into();
+    let test_cluster = TestClusterBuilder::new()
+        .with_accounts(vec![AccountConfig {
+            address: Some(address),
+            gas_amounts: vec![DEFAULT_GAS_AMOUNT],
+        }])
+        .build()
+        .await
         .unwrap();
-    // Validator information from genesis contains public network addresses that we need to commit on-chain.
-    let new_validator = new_configs
-        .genesis
-        .validator_set_for_tooling()
-        .into_iter()
-        .find(|v| {
-            let name: AuthorityName = v.verified_metadata().sui_pubkey_bytes();
-            !public_keys.contains(&name)
-        })
+    let gas = test_cluster
+        .wallet
+        .get_one_gas_object_owned_by_address(address)
+        .await
+        .unwrap()
         .unwrap();
 
-    let authorities = spawn_test_authorities(&init_configs).await;
-    let _effects = execute_add_validator_candidate_tx(
-        &authorities,
-        gas_objects[3].compute_object_reference(),
-        new_node_config,
-        new_validator.verified_metadata(),
-        &new_validator_key,
-    )
-    .await;
-
-    // Trigger reconfiguration so that the candidate adding txn is executed on all authorities.
-    trigger_reconfiguration(&authorities).await;
+    let tx =
+        TestTransactionBuilder::new(address, gas, test_cluster.get_reference_gas_price().await)
+            .call_request_add_validator_candidate(
+                &new_validator.to_validator_info_with_random_name().into(),
+            )
+            .build_and_sign(&new_validator.account_key_pair);
+    let response = test_cluster.execute_transaction(tx).await.unwrap();
+    assert!(response.status_ok().unwrap());
 
     // Check that the candidate can be found in the candidate table now.
-    authorities[0].with(|node| {
+    test_cluster.fullnode_handle.sui_node.with(|node| {
         let system_state = node
             .state()
             .get_sui_system_state_object_for_testing()
@@ -525,7 +495,7 @@ async fn test_validator_candidate_pool_read() {
         let staking_pool_id = get_validator_from_table(
             node.state().db().as_ref(),
             system_state_summary.validator_candidates_id,
-            &new_validator_address,
+            &address,
         )
         .unwrap()
         .staking_pool_id;
@@ -536,35 +506,27 @@ async fn test_validator_candidate_pool_read() {
             staking_pool_id,
         )
         .unwrap();
-        assert_eq!(validator.sui_address, new_validator_address);
+        assert_eq!(validator.sui_address, address);
     });
 }
 
 #[sim_test]
 async fn test_inactive_validator_pool_read() {
-    let leaving_validator_account_key = gen_keys(5).pop().unwrap();
-    let address: SuiAddress = leaving_validator_account_key.public().into();
-
-    let gas_objects = generate_test_gas_objects_with_owner(1, address);
-    let stake = Object::new_gas_with_balance_and_owner_for_testing(25_000_000_000_000_000, address);
-    let mut genesis_objects = vec![stake];
-    genesis_objects.extend(gas_objects.clone());
-
-    let init_configs = ConfigBuilder::new_with_temp_dir()
-        .rng(StdRng::from_seed([0; 32]))
-        .with_validator_account_keys(gen_keys(5))
-        .with_objects(genesis_objects.clone())
-        .build();
-
-    let gas_objects: Vec<_> = gas_objects
-        .into_iter()
-        .map(|o| init_configs.genesis.object(o.id()).unwrap())
-        .collect();
-
-    let authorities = spawn_test_authorities(&init_configs).await;
-    let rgp = init_configs.genesis.reference_gas_price();
-
-    let staking_pool_id = authorities[0].with(|node| {
+    let test_cluster = TestClusterBuilder::new()
+        .with_num_validators(5)
+        .build()
+        .await
+        .unwrap();
+    let keypair = test_cluster
+        .swarm
+        .validators()
+        .next()
+        .unwrap()
+        .config
+        .account_key_pair
+        .keypair();
+    let address = (&keypair.public()).into();
+    let staking_pool_id = test_cluster.fullnode_handle.sui_node.with(|node| {
         node.state()
             .get_sui_system_state_object_for_testing()
             .unwrap()
@@ -575,7 +537,7 @@ async fn test_inactive_validator_pool_read() {
             .unwrap()
             .staking_pool_id
     });
-    authorities[0].with(|node| {
+    test_cluster.fullnode_handle.sui_node.with(|node| {
         let system_state = node
             .state()
             .get_sui_system_state_object_for_testing()
@@ -591,30 +553,29 @@ async fn test_inactive_validator_pool_read() {
         .unwrap();
         assert_eq!(validator.sui_address, address);
     });
+    let gas = test_cluster
+        .wallet
+        .get_one_gas_object_owned_by_address(address)
+        .await
+        .unwrap()
+        .unwrap();
 
-    let tx_data = TransactionData::new_move_call(
-        address,
-        SUI_SYSTEM_PACKAGE_ID,
-        ident_str!("sui_system").to_owned(),
-        ident_str!("request_remove_validator").to_owned(),
-        vec![],
-        gas_objects[0].compute_object_reference(),
-        vec![CallArg::SUI_SYSTEM_MUT],
-        rgp * TEST_ONLY_GAS_UNIT_FOR_GENERIC,
-        rgp,
-    )
-    .unwrap();
-    let transaction = to_sender_signed_transaction(tx_data, &leaving_validator_account_key);
-    let effects = execute_transaction_block(&authorities, transaction)
+    let tx =
+        TestTransactionBuilder::new(address, gas, test_cluster.get_reference_gas_price().await)
+            .call_request_remove_validator()
+            .build_and_sign(keypair);
+    let response = test_cluster
+        .wallet
+        .execute_transaction_block(tx)
         .await
         .unwrap();
-    assert!(effects.status().is_ok());
+    assert!(response.status_ok().unwrap());
 
-    trigger_reconfiguration(&authorities).await;
+    test_cluster.trigger_reconfiguration().await;
 
     // Check that the validator that just left now shows up in the inactive_validators,
     // and we can still deserialize it and get the inactive staking pool.
-    authorities[0].with(|node| {
+    test_cluster.fullnode_handle.sui_node.with(|node| {
         let system_state = node
             .state()
             .get_sui_system_state_object_for_testing()
@@ -645,97 +606,52 @@ fn gen_keys(count: usize) -> Vec<AccountKeyPair> {
 async fn test_reconfig_with_committee_change_basic() {
     // This test exercise the full flow of a validator joining the network, catch up and then leave.
 
-    let new_validator_key = gen_keys(5).pop().unwrap();
-    let new_validator_address: SuiAddress = new_validator_key.public().into();
-
-    // TODO: In order to better "test" this flow we probably want to set the validators to ignore
-    // all p2p peer connections so that we can verify that new nodes joining can really "talk" with the
-    // other validators in the set.
-    let gas_objects =
-        generate_test_gas_objects_with_owner_and_value(4, new_validator_address, 100_000_000_000);
-    let stake = Object::new_gas_with_balance_and_owner_for_testing(
-        30_000_000_000_000_000,
-        new_validator_address,
-    );
-    let mut objects = vec![stake.clone()];
-    objects.extend(gas_objects.clone());
-
-    let init_configs = ConfigBuilder::new_with_temp_dir()
-        .rng(StdRng::from_seed([0; 32]))
-        .with_validator_account_keys(gen_keys(4))
-        .with_objects(objects.clone())
-        .build();
-
-    let new_configs = ConfigBuilder::new_with_temp_dir()
-        .rng(StdRng::from_seed([0; 32]))
-        .with_validator_account_keys(gen_keys(5))
-        .with_objects(objects.clone())
-        .build();
-
-    let gas_objects: Vec<_> = gas_objects
-        .into_iter()
-        .map(|o| init_configs.genesis.object(o.id()).unwrap())
-        .collect();
-
-    let stake = init_configs.genesis.object(stake.id()).unwrap();
-
-    // Generate a new validator config.
-    // Our committee generation uses a fixed seed, so we need to generate a new committee
-    // with one extra validator.
-    // Furthermore, since the order is not fixed, we need to find the new validator
-    // that doesn't exist in the previous committee manually.
-    // The order of validator_set() and validator_configs() is also different.
-    // TODO: We should really fix the above inconveniences.
-    let public_keys: HashSet<_> = init_configs
-        .validator_configs
-        .iter()
-        .map(|config| config.protocol_public_key())
-        .collect();
-    // Node configs contain things such as private keys, which we need to send transactions.
-    let new_node_config = new_configs
-        .validator_configs
-        .iter()
-        .find(|v| !public_keys.contains(&v.protocol_public_key()))
+    let new_validator = ValidatorGenesisConfigBuilder::new().build(&mut OsRng);
+    let address = (&new_validator.account_key_pair.public()).into();
+    let mut test_cluster = TestClusterBuilder::new()
+        .with_accounts(vec![AccountConfig {
+            address: Some(address),
+            gas_amounts: vec![MIN_VALIDATOR_JOINING_STAKE_MIST, DEFAULT_GAS_AMOUNT],
+        }])
+        .build()
+        .await
         .unwrap();
-    // Validator information from genesis contains public network addresses that we need to commit on-chain.
-    let new_validator = new_configs
-        .genesis
-        .validator_set_for_tooling()
-        .into_iter()
-        .find(|v| {
-            let name: AuthorityName = v.verified_metadata().sui_pubkey_bytes();
-            !public_keys.contains(&name)
-        })
-        .unwrap();
-    info!(
-        "New validator is: {:?}",
-        new_validator
-            .verified_metadata()
-            .sui_pubkey_bytes()
-            .concise()
-    );
+    let stake_coin = test_cluster
+        .wallet
+        .gas_for_owner_budget(
+            address,
+            MIN_VALIDATOR_JOINING_STAKE_MIST,
+            Default::default(),
+        )
+        .await
+        .unwrap()
+        .1
+        .object_ref();
+    let gas = test_cluster
+        .wallet
+        .gas_for_owner_budget(address, 0, BTreeSet::from([stake_coin.0]))
+        .await
+        .unwrap()
+        .1
+        .object_ref();
 
-    let mut authorities = spawn_test_authorities(&init_configs).await;
+    let rgp = test_cluster.get_reference_gas_price().await;
+    let tx = TestTransactionBuilder::new(address, gas, rgp)
+        .call_request_add_validator_candidate(
+            &new_validator.to_validator_info_with_random_name().into(),
+        )
+        .build_and_sign(&new_validator.account_key_pair);
+    let response = test_cluster.execute_transaction(tx).await.unwrap();
+    assert!(response.status_ok().unwrap());
 
-    let _effects = execute_join_committee_txes(
-        &authorities,
-        gas_objects
-            .clone()
-            .into_iter()
-            .map(|obj| obj.compute_object_reference())
-            .collect::<Vec<_>>(),
-        stake.compute_object_reference(),
-        new_node_config,
-        new_validator.verified_metadata(),
-        &new_validator_key,
-    )
-    .await;
-
-    // Give the nodes enough time to execute the joining txns.
-    sleep(Duration::from_secs(5)).await;
+    let gas = test_cluster.wallet.get_object_ref(gas.0).await.unwrap();
+    let stake_tx = TestTransactionBuilder::new(address, gas, rgp)
+        .call_staking(stake_coin, address)
+        .build_and_sign(&new_validator.account_key_pair);
+    test_cluster.execute_transaction(stake_tx).await.unwrap();
 
     // Check that we can get the pending validator from 0x5.
-    authorities[0].with(|node| {
+    test_cluster.fullnode_handle.sui_node.with(|node| {
         let system_state = node
             .state()
             .get_sui_system_state_object_for_testing()
@@ -744,15 +660,13 @@ async fn test_reconfig_with_committee_change_basic() {
             .get_pending_active_validators(node.state().db().as_ref())
             .unwrap();
         assert_eq!(pending_active_validators.len(), 1);
-        assert_eq!(
-            pending_active_validators[0].sui_address,
-            new_validator_address
-        );
+        assert_eq!(pending_active_validators[0].sui_address, address);
     });
 
-    trigger_reconfiguration(&authorities).await;
+    test_cluster.trigger_reconfiguration().await;
+
     // Check that a new validator has joined the committee.
-    authorities[0].with(|node| {
+    test_cluster.fullnode_handle.sui_node.with(|node| {
         assert_eq!(
             node.state()
                 .epoch_store_for_testing()
@@ -761,37 +675,45 @@ async fn test_reconfig_with_committee_change_basic() {
             5
         );
     });
+    let new_validator_handle = test_cluster.spawn_new_validator(new_validator).await;
+    test_cluster.wait_for_epoch_all_validators(1).await;
 
-    let mut new_node_config_clone = new_node_config.clone();
-    // Make sure that the new validator config shares the same genesis as the initial one.
-    new_node_config_clone.genesis = init_configs.validator_configs[0].genesis.clone();
-    let handle = start_node(
-        &new_node_config_clone,
-        RegistryService::new(Registry::new()),
-    )
-    .await;
-    // Give the new validator enough time to catch up and sync.
-    // TODO: 30s is still flaky.
-    tokio::time::sleep(Duration::from_secs(30)).await;
-    handle.with(|node| {
-        // Eventually the validator will catch up to the new epoch and become part of the committee.
+    new_validator_handle.with(|node| {
+        assert_eq!(
+            node.state()
+                .epoch_store_for_testing()
+                .committee()
+                .num_members(),
+            5
+        );
         assert!(node
             .state()
             .is_validator(&node.state().epoch_store_for_testing()));
     });
 
-    let _effects = execute_leave_committee_tx(
-        &authorities,
-        gas_objects[3].compute_object_reference(),
-        &new_validator_key,
-    )
-    .await;
+    let gas = test_cluster
+        .wallet
+        .get_one_gas_object_owned_by_address(address)
+        .await
+        .unwrap()
+        .unwrap();
 
-    authorities.push(handle);
-    trigger_reconfiguration(&authorities).await;
+    let tx = new_validator_handle.with(|node| {
+        TestTransactionBuilder::new(address, gas, rgp)
+            .call_request_remove_validator()
+            .build_and_sign(node.get_config().account_key_pair.keypair())
+    });
+    let response = test_cluster
+        .wallet
+        .execute_transaction_block(tx)
+        .await
+        .unwrap();
+    assert!(response.status_ok().unwrap());
+
+    test_cluster.trigger_reconfiguration().await;
 
     // Check that this validator has left the committee, and is no longer a validator.
-    authorities[4].with(|node| {
+    test_cluster.fullnode_handle.sui_node.with(|node| {
         assert_eq!(
             node.state()
                 .epoch_store_for_testing()

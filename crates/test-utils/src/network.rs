@@ -23,11 +23,11 @@ use sui_sdk::sui_client_config::{SuiClientConfig, SuiEnv};
 use sui_sdk::wallet_context::WalletContext;
 use sui_sdk::{SuiClient, SuiClientBuilder};
 use sui_swarm::memory::{Swarm, SwarmBuilder};
-use sui_swarm_config::genesis_config::{AccountConfig, GenesisConfig};
+use sui_swarm_config::genesis_config::{AccountConfig, GenesisConfig, ValidatorGenesisConfig};
 use sui_swarm_config::network_config_builder::{
     ProtocolVersionsConfig, SupportedProtocolVersionsCallback,
 };
-use sui_swarm_config::node_config_builder::FullnodeConfigBuilder;
+use sui_swarm_config::node_config_builder::{FullnodeConfigBuilder, ValidatorConfigBuilder};
 use sui_types::base_types::{AuthorityName, ObjectID, SuiAddress};
 use sui_types::committee::EpochId;
 use sui_types::crypto::KeypairTraits;
@@ -172,6 +172,15 @@ impl TestCluster {
             return;
         }
         node.start().await.unwrap();
+    }
+
+    pub async fn spawn_new_validator(
+        &mut self,
+        genesis_config: ValidatorGenesisConfig,
+    ) -> SuiNodeHandle {
+        let node_config = ValidatorConfigBuilder::new()
+            .build(genesis_config, self.swarm.config().genesis.clone());
+        self.swarm.spawn_new_validator(node_config).await
     }
 
     pub fn random_node_restarter(self: &Arc<Self>) -> RandomNodeRestarter {

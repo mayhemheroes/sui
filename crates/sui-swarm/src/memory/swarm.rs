@@ -367,6 +367,15 @@ impl Swarm {
         handle
     }
 
+    pub async fn spawn_new_validator(&mut self, config: NodeConfig) -> SuiNodeHandle {
+        let name = config.protocol_public_key();
+        let node = Node::new(config);
+        node.start().await.unwrap();
+        let handle = node.get_node_handle().unwrap();
+        self.validators.insert(name, node);
+        handle
+    }
+
     pub fn get_fullnode_config_builder(&self) -> FullnodeConfigBuilder {
         self.fullnode_config_builder.clone()
     }

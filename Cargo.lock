@@ -10528,6 +10528,7 @@ dependencies = [
  "bcs",
  "move-core-types",
  "shared-crypto",
+ "sui-genesis-builder",
  "sui-move-build",
  "sui-types",
  "workspace-hack",
