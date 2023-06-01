@@ -133,10 +133,11 @@ module crypto::ec_ops {
         let a1 = ristretto255::g_mul(&b1, &ristretto255::g_generator());
         // a2 = b2*g (for proving knowledge of r2)
         let a2 = ristretto255::g_mul(&b2, &ristretto255::g_generator());
-        // a3 = b1*eph1 - b2*pk2 (for proving equality of encryptions)
-        let ep1_b1 = ristretto255::g_mul(&b1, &enc1.ephemeral);
-        let pk2_b2 = ristretto255::g_mul(&b2, pk2);
-        let a3 = ristretto255::g_sub(&ep1_b1, &pk2_b2);
+        let scalars = vector::singleton(b1);
+        vector::push_back(&mut scalars, ristretto255::scalar_neg(&b2));
+        let points = vector::singleton(enc1.ephemeral);
+        vector::push_back(&mut points, *pk2);
+        let a3 = ristretto255::g_multi_scalar_multiplication(&scalars, &points);
         // RO challenge
         let c = fiat_shamir_challenge(pk1, pk2, enc1, enc2, &a1, &a2, &a3);
         // z1 = b1 + c*sk1
@@ -170,14 +171,15 @@ module crypto::ec_ops {
             return false
         };
         // Check if a3 = c*(ct2 - ct1) + z1*eph1 - z2*pk2
-        let ct2_c = ristretto255::g_mul(&c, &enc2.ciphertext);
-        let ct1_c = ristretto255::g_mul(&c, &enc1.ciphertext);
-        let eph1_z1 = ristretto255::g_mul(&proof.z1, &enc1.ephemeral);
-        let pk2_z2 = ristretto255::g_mul(&proof.z2, pk2);
-        let lhs = ristretto255::g_add(
-            &ristretto255::g_sub(&ct2_c, &ct1_c),
-            &ristretto255::g_sub(&eph1_z1, &pk2_z2)
-        );
+        let scalars = vector::singleton(c);
+        vector::push_back(&mut scalars, ristretto255::scalar_neg(&c));
+        vector::push_back(&mut scalars, proof.z1);
+        vector::push_back(&mut scalars, ristretto255::scalar_neg(&proof.z2));
+        let points = vector::singleton(enc2.ciphertext);
+        vector::push_back(&mut points, enc1.ciphertext);
+        vector::push_back(&mut points, enc1.ephemeral);
+        vector::push_back(&mut points, *pk2);
+        let lhs = ristretto255::g_multi_scalar_multiplication(&scalars, &points);
         if (!group_ops::equal(&lhs, &proof.a3)) {
             return false
         };
