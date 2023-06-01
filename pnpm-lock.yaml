@@ -242,9 +242,6 @@ importers:
       topojson-client:
         specifier: ^3.1.0
         version: 3.1.0
-      vanilla-cookieconsent:
-        specifier: ^2.9.1
-        version: 2.9.1
       vite-plugin-rewrite-all:
         specifier: ^1.0.1
         version: 1.0.1(vite@4.2.1)
