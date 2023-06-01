@@ -11,17 +11,17 @@ export function useCookieConsentBanner<T>(
 ) {
     const { data: productAnalyticsConfig } = useProductAnalyticsConfig();
     useEffect(() => {
-        if (productAnalyticsConfig?.mustProvideCookieConsent) {
+        if (!productAnalyticsConfig) {
+            return;
+        }
+
+        if (productAnalyticsConfig.mustProvideCookieConsent) {
             loadCookieConsentBanner(options);
         } else {
             // Use cookie storage if the user doesn't have to provide consent
             storageInstance.persist();
         }
-    }, [
-        options,
-        productAnalyticsConfig?.mustProvideCookieConsent,
-        storageInstance,
-    ]);
+    }, [options, productAnalyticsConfig, storageInstance]);
 }
 
 async function loadCookieConsentBanner(options: UserConfig) {
