@@ -19,7 +19,6 @@ export function useCookieConsentBanner<T>(
             loadCookieConsentBanner(options);
         } else {
             // Use cookie storage if the user doesn't have to provide consent
-            console.log('WTF PERSIST');
             storageInstance.persist();
         }
     }, [options, productAnalyticsConfig, storageInstance]);
