@@ -29,6 +29,7 @@ use sui_types::storage::{ReadStore, WriteStore};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::Instant;
+use tracing::debug;
 
 pub struct ArchiveMetrics {
     pub latest_checkpoint_archived: IntGauge,
@@ -308,7 +309,6 @@ impl ArchiveWriterV1 {
         let (kill_sender, _) = tokio::sync::broadcast::channel::<()>(1);
         tokio::spawn(Self::start_tailing_checkpoints(
             self.remote_object_store.clone(),
-            self.local_object_store.clone(),
             self.local_staging_dir_root.clone(),
             store,
             self.file_compression,
@@ -330,7 +330,6 @@ impl ArchiveWriterV1 {
 
     async fn start_tailing_checkpoints<S>(
         remote_object_store: Arc<DynObjectStore>,
-        local_object_store: Arc<DynObjectStore>,
         local_staging_root_dir: PathBuf,
         store: S,
         file_compression: FileCompression,
@@ -353,13 +352,9 @@ impl ArchiveWriterV1 {
             // Start from genesis
             Manifest::new(0, 0)
         } else {
-            read_manifest(
-                local_staging_root_dir.clone(),
-                local_object_store.clone(),
-                remote_object_store.clone(),
-            )
-            .await
-            .expect("Failed to read manifest")
+            read_manifest(remote_object_store.clone())
+                .await
+                .expect("Failed to read manifest")
         };
         let mut checkpoint_sequence_number = manifest.next_checkpoint_seq_num();
         let mut writer = CheckpointWriter::new(
@@ -422,10 +417,8 @@ impl ArchiveWriterV1 {
                         .await
                         .expect("Syncing checkpoint content should not fail");
 
-                        let manifest_file_path = checkpoint_updates.manifest_file_path();
                         write_manifest(
                             checkpoint_updates.manifest,
-                            manifest_file_path,
                             remote_object_store.clone()
                         )
                         .await
@@ -475,6 +468,7 @@ impl ArchiveWriterV1 {
         from: Arc<DynObjectStore>,
         to: Arc<DynObjectStore>,
     ) -> Result<()> {
+        debug!("Syncing archive file to remote: {:?}", path);
         copy_file(path.clone(), path.clone(), from, to).await?;
         fs::remove_file(path_to_filesystem(dir, &path)?)?;
         Ok(())
