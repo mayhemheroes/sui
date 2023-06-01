@@ -10,12 +10,12 @@ const COOKIE_NAME = 'sui_explorer_cookie_consent';
 const ANALYTICS_COOKIE_CATEGORY = 'analytics';
 const NECESSARY_COOKIE_CATEGORY = 'necessary';
 
-export function useCookieConsentBanner() {
+export function useCookieConsentBanner(cookieName: string) {
     const { data: productAnalyticsConfig } = useProductAnalyticsConfig();
     useEffect(() => {
-        if (productAnalyticsConfig?.mustProvideCookieConsent) {
-            loadCookieConsentBanner();
-        }
+        //if (productAnalyticsConfig?.mustProvideCookieConsent) {
+        loadCookieConsentBanner();
+        //}
     }, [productAnalyticsConfig?.mustProvideCookieConsent]);
 }
 
