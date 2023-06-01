@@ -1,36 +1,41 @@
-// Copyright (c) Mysten Labs, Inc.
-// SPDX-License-Identifier: Apache-2.0
-
-import { useProductAnalyticsConfig } from '@mysten/core';
 import { useEffect } from 'react';
+import { PersistableStorage } from '../utils/persistableStorage';
+import { useProductAnalyticsConfig } from './useProductAnalyticsConfig';
 
-import { persistableStorage } from '~/utils/analytics/amplitude';
+export const ANALYTICS_COOKIE_CATEGORY = 'analytics';
+export const NECESSARY_COOKIE_CATEGORY = 'necessary';
 
-const COOKIE_NAME = 'sui_explorer_cookie_consent';
-const ANALYTICS_COOKIE_CATEGORY = 'analytics';
-const NECESSARY_COOKIE_CATEGORY = 'necessary';
-
-export function useCookieConsentBanner(cookieName: string) {
+export function useCookieConsentBanner<T>(
+    storageInstance: PersistableStorage<T>,
+    options: UserConfig
+) {
     const { data: productAnalyticsConfig } = useProductAnalyticsConfig();
     useEffect(() => {
-        //if (productAnalyticsConfig?.mustProvideCookieConsent) {
-        loadCookieConsentBanner();
-        //}
-    }, [productAnalyticsConfig?.mustProvideCookieConsent]);
+        console.log('CALLING EFFECT');
+
+        if (productAnalyticsConfig?.mustProvideCookieConsent || true) {
+            loadCookieConsentBanner(options);
+        } else {
+            console.log('PERSISTING');
+            // Use cookie storage if the user doesn't have to provide consent
+            storageInstance.persist();
+        }
+    }, [
+        options,
+        productAnalyticsConfig?.mustProvideCookieConsent,
+        storageInstance,
+    ]);
 }
 
-async function loadCookieConsentBanner() {
+async function loadCookieConsentBanner(options: UserConfig) {
     await import('vanilla-cookieconsent');
     await import('vanilla-cookieconsent/dist/cookieconsent.css');
 
     const cookieConsent = window.initCookieConsent();
-    document.body.classList.add('c_darkmode');
-
     cookieConsent.run({
         revision: 0,
         autorun: true,
         current_lang: 'en',
-        cookie_name: COOKIE_NAME,
         gui_options: {
             consent_modal: {
                 layout: 'box',
@@ -42,11 +47,6 @@ async function loadCookieConsentBanner() {
                 layout: 'box',
                 transition: 'slide',
             },
-        },
-        onAccept(cookie) {
-            if (cookie.categories.includes(ANALYTICS_COOKIE_CATEGORY)) {
-                persistableStorage.persist();
-            }
         },
         languages: {
             en: {
@@ -98,5 +98,6 @@ async function loadCookieConsentBanner() {
                 },
             },
         },
+        ...options,
     });
 }

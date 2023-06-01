@@ -1,7 +1,12 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { RpcClientContext, useAppsBackend } from '@mysten/core';
+import {
+    ANALYTICS_COOKIE_CATEGORY,
+    RpcClientContext,
+    useAppsBackend,
+    useCookieConsentBanner,
+} from '@mysten/core';
 import { WalletKitProvider } from '@mysten/wallet-kit';
 import { useQuery } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
@@ -14,8 +19,8 @@ import Footer from '../footer/Footer';
 import Header from '../header/Header';
 
 import { NetworkContext, useNetwork } from '~/context';
-import { useCookieConsentBanner } from '~/hooks/useCookieConsentBanner';
 import { Banner } from '~/ui/Banner';
+import { persistableStorage } from '~/utils/analytics/amplitude';
 import { DefaultRpcClient, Network } from '~/utils/api/DefaultRpcClient';
 
 export function Layout() {
@@ -34,7 +39,16 @@ export function Layout() {
         enabled: network === Network.MAINNET,
     });
 
-    useCookieConsentBanner();
+    useCookieConsentBanner(persistableStorage, {
+        cookie_name: 'sui_explorer_cookie_consent',
+        onAccept: (cookieContent) => {
+            if (cookieContent.categories.includes(ANALYTICS_COOKIE_CATEGORY)) {
+                console.log('ON ACCEPT');
+                persistableStorage.persist();
+            }
+        },
+    });
+
     usePageView();
 
     return (

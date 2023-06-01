@@ -52,6 +52,9 @@ importers:
       react-dom:
         specifier: ^18.2.0
         version: 18.2.0(react@18.2.0)
+      vanilla-cookieconsent:
+        specifier: ^2.9.1
+        version: 2.9.1
     devDependencies:
       '@headlessui/tailwindcss':
         specifier: ^0.1.3
