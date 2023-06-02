@@ -3,7 +3,6 @@
 
 import { expect, test } from './fixtures';
 import { createWallet } from './utils/auth';
-import { getLocalTokens } from './utils/getLocalTokens';
 
 const TEST_TIMEOUT = 125 * 1000;
 
@@ -15,7 +14,9 @@ test('staking', async ({ page, extensionUrl }) => {
     test.setTimeout(TEST_TIMEOUT);
 
     await createWallet(page, extensionUrl);
-    await getLocalTokens(page);
+
+    await page.getByTestId('faucet-request-button').click();
+    await expect(page.getByTestId('coin-balance')).toHaveText('1,000SUI');
 
     await page.getByTestId('stake-n-earn-button').click();
     await page.getByTestId('validator-list-item').first().click();
