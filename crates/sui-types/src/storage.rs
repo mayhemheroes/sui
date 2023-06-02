@@ -330,12 +330,8 @@ impl<T: ReadStore> ReadStore for &T {
 }
 
 pub trait WriteStore: ReadStore {
-    fn insert_checkpoint(&self, checkpoint: &VerifiedCheckpoint) -> Result<(), Self::Error>;
+    fn insert_checkpoint(&self, checkpoint: VerifiedCheckpoint) -> Result<(), Self::Error>;
     fn update_highest_synced_checkpoint(
-        &self,
-        checkpoint: &VerifiedCheckpoint,
-    ) -> Result<(), Self::Error>;
-    fn update_highest_verified_checkpoint(
         &self,
         checkpoint: &VerifiedCheckpoint,
     ) -> Result<(), Self::Error>;
@@ -349,7 +345,7 @@ pub trait WriteStore: ReadStore {
 }
 
 impl<T: WriteStore> WriteStore for &T {
-    fn insert_checkpoint(&self, checkpoint: &VerifiedCheckpoint) -> Result<(), Self::Error> {
+    fn insert_checkpoint(&self, checkpoint: VerifiedCheckpoint) -> Result<(), Self::Error> {
         WriteStore::insert_checkpoint(*self, checkpoint)
     }
 
@@ -358,13 +354,6 @@ impl<T: WriteStore> WriteStore for &T {
         checkpoint: &VerifiedCheckpoint,
     ) -> Result<(), Self::Error> {
         WriteStore::update_highest_synced_checkpoint(*self, checkpoint)
-    }
-
-    fn update_highest_verified_checkpoint(
-        &self,
-        checkpoint: &VerifiedCheckpoint,
-    ) -> Result<(), Self::Error> {
-        WriteStore::update_highest_verified_checkpoint(*self, checkpoint)
     }
 
     fn insert_checkpoint_contents(
@@ -404,7 +393,7 @@ impl InMemoryStore {
         committee: Committee,
     ) {
         self.insert_committee(committee);
-        self.insert_checkpoint(&checkpoint);
+        self.insert_checkpoint(checkpoint.clone());
         self.insert_checkpoint_contents(&checkpoint, contents);
         self.update_highest_synced_checkpoint(&checkpoint);
     }
@@ -472,19 +461,7 @@ impl InMemoryStore {
             .insert(*contents.digest(), contents);
     }
 
-    pub fn insert_checkpoint(&mut self, checkpoint: &VerifiedCheckpoint) {
-        self.insert_certified_checkpoint(checkpoint);
-        let digest = *checkpoint.digest();
-        let sequence_number = *checkpoint.sequence_number();
-
-        if Some(sequence_number) > self.highest_verified_checkpoint.map(|x| x.0) {
-            self.highest_verified_checkpoint = Some((sequence_number, digest));
-        }
-    }
-
-    // This function simulates Consensus inserts certified checkpoint into the checkpoint store
-    // without bumping the highest_verified_checkpoint watermark.
-    pub fn insert_certified_checkpoint(&mut self, checkpoint: &VerifiedCheckpoint) {
+    pub fn insert_checkpoint(&mut self, checkpoint: VerifiedCheckpoint) {
         let digest = *checkpoint.digest();
         let sequence_number = *checkpoint.sequence_number();
 
@@ -498,7 +475,12 @@ impl InMemoryStore {
             self.insert_committee(committee);
         }
 
-        self.checkpoints.insert(digest, checkpoint.clone());
+        // Update latest
+        if Some(sequence_number) > self.highest_verified_checkpoint.map(|x| x.0) {
+            self.highest_verified_checkpoint = Some((sequence_number, digest));
+        }
+
+        self.checkpoints.insert(digest, checkpoint);
         self.sequence_number_to_digest
             .insert(sequence_number, digest);
     }
@@ -509,14 +491,6 @@ impl InMemoryStore {
         }
 
         self.highest_synced_checkpoint =
-            Some((*checkpoint.sequence_number(), *checkpoint.digest()));
-    }
-
-    pub fn update_highest_verified_checkpoint(&mut self, checkpoint: &VerifiedCheckpoint) {
-        if !self.checkpoints.contains_key(checkpoint.digest()) {
-            panic!("store should already contain checkpoint");
-        }
-        self.highest_verified_checkpoint =
             Some((*checkpoint.sequence_number(), *checkpoint.digest()));
     }
 
@@ -693,7 +667,7 @@ impl ReadStore for SharedInMemoryStore {
 }
 
 impl WriteStore for SharedInMemoryStore {
-    fn insert_checkpoint(&self, checkpoint: &VerifiedCheckpoint) -> Result<(), Self::Error> {
+    fn insert_checkpoint(&self, checkpoint: VerifiedCheckpoint) -> Result<(), Self::Error> {
         self.inner_mut().insert_checkpoint(checkpoint);
         Ok(())
     }
@@ -704,15 +678,6 @@ impl WriteStore for SharedInMemoryStore {
     ) -> Result<(), Self::Error> {
         self.inner_mut()
             .update_highest_synced_checkpoint(checkpoint);
-        Ok(())
-    }
-
-    fn update_highest_verified_checkpoint(
-        &self,
-        checkpoint: &VerifiedCheckpoint,
-    ) -> Result<(), Self::Error> {
-        self.inner_mut()
-            .update_highest_verified_checkpoint(checkpoint);
         Ok(())
     }
 
@@ -729,12 +694,6 @@ impl WriteStore for SharedInMemoryStore {
     fn insert_committee(&self, new_committee: Committee) -> Result<(), Self::Error> {
         self.inner_mut().insert_committee(new_committee);
         Ok(())
-    }
-}
-
-impl SharedInMemoryStore {
-    pub fn insert_certified_checkpoint(&self, checkpoint: &VerifiedCheckpoint) {
-        self.inner_mut().insert_certified_checkpoint(checkpoint);
     }
 }
 
