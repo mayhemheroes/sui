@@ -38,6 +38,9 @@ const config: PlaywrightTestConfig = {
 
         /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
         trace: 'on-first-retry',
+
+        /* Requires clipboard access for e2e tests. */
+        permissions: ['clipboard-read', 'clipboard-write'],
     },
     /* Configure projects for major browsers */
     projects: [

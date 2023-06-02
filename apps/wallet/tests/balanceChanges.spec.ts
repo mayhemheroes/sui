@@ -3,9 +3,13 @@
 
 import { expect, test } from './fixtures';
 import { createWallet } from './utils/auth';
-import { generateAddress, generateKeypairFromMnemonic } from './utils/localnet';
+import {
+    generateAddress,
+    generateKeypairFromMnemonic,
+    requestingSuiFromFaucet,
+} from './utils/localnet';
 
-const mnemonic = [
+const receivedAddressMnemonic = [
     'beef',
     'beef',
     'beef',
@@ -20,20 +24,39 @@ const mnemonic = [
     'beef',
 ];
 
-test('send 300 SUI and view transaction activity', async ({
-    page,
-    extensionUrl,
-}) => {
-    const keypair = await generateKeypairFromMnemonic(mnemonic.join(' '));
+const COIN_TO_SEND = 20;
+
+test('request SUI from local faucet', async ({ page, extensionUrl }) => {
+    await createWallet(page, extensionUrl);
+
+    await expect(page.getByTestId('coin-balance')).toHaveText('0SUI');
+    await page.getByTestId('faucet-request-button').click();
+    await expect(page.getByText(/1,000 SUI Received/i)).toBeVisible();
+    await expect(page.getByTestId('coin-balance')).toHaveText('1,000SUI');
+});
+
+test('send 500 SUI to an address', async ({ page, extensionUrl }) => {
+    const keypair = await generateKeypairFromMnemonic(
+        receivedAddressMnemonic.join(' ')
+    );
     const address = generateAddress(keypair);
 
     await createWallet(page, extensionUrl);
 
-    await page.getByTestId('faucet-request-button').click();
-    await expect(page.getByTestId('coin-balance')).toHaveText('1,000SUI');
+    await page.getByTestId('copy-address').click();
+
+    const existingAddress = (await page.evaluate(
+        'navigator.clipboard.readText()'
+    )) as string;
+
+    await requestingSuiFromFaucet(existingAddress);
+    await expect(page.getByTestId('coin-balance')).not.toHaveText('0SUI');
+
+    const balance = await page.getByTestId('coin-balance').textContent();
+    const finalBalance = Number(balance?.replace(/\D/g, '')) - COIN_TO_SEND;
 
     await page.getByTestId('send-coin-button').click();
-    await page.getByTestId('coin-amount-input').fill('300');
+    await page.getByTestId('coin-amount-input').fill(String(COIN_TO_SEND));
     await page.getByTestId('address-input').fill(address);
     await page.getByRole('button', { name: 'Review' }).click();
     await page.getByRole('button', { name: 'Send Now' }).click();
@@ -41,9 +64,14 @@ test('send 300 SUI and view transaction activity', async ({
 
     await page.getByTestId('close-icon').click();
     await page.getByTestId('nav-tokens').click();
-    await expect(page.getByTestId('coin-balance')).toHaveText('700SUI');
+    await expect(page.getByTestId('coin-balance')).toHaveText(
+        `${finalBalance.toLocaleString()}SUI`
+    );
 
     await page.getByTestId('nav-activity').click();
-    await page.getByTestId('link-to-txn').first().click();
-    await expect(page.getByText('Amount+300 SUI')).toBeVisible();
+    await page
+        .getByText(/Transaction/i)
+        .first()
+        .click();
+    await expect(page.getByText(`Amount+${COIN_TO_SEND} SUI`)).toBeVisible();
 });
