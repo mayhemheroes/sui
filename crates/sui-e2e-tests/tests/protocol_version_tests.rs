@@ -127,8 +127,8 @@ mod sim_only_tests {
             .await
             .unwrap();
 
-        let validator = test_cluster.get_validator_addresses()[0].clone();
-        test_cluster.stop_validator(validator);
+        let validator = test_cluster.get_validator_pubkeys()[0].clone();
+        test_cluster.stop_node(&validator);
 
         assert_eq!(
             test_cluster
@@ -137,12 +137,12 @@ mod sim_only_tests {
                 .protocol_version(),
             FINISH
         );
-        test_cluster.start_validator(validator).await;
+        test_cluster.start_node(&validator).await;
 
         test_cluster.wait_for_epoch(Some(2)).await;
         let validator_handle = test_cluster
             .swarm
-            .validator(validator.clone())
+            .node(&validator)
             .unwrap()
             .get_node_handle()
             .unwrap();
