@@ -1,0 +1,5 @@
+project: sui
+target: mixed
+
+cmds:
+  - cmd: /mixed

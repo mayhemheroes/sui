@@ -1,0 +1,5 @@
+project: sui
+target: compiled_module
+
+cmds:
+  - cmd: /compiled_module
