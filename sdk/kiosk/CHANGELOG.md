@@ -1,5 +1,11 @@
 # @mysten/kiosk
 
+## 0.3.0
+
+### Minor Changes
+
+- 968304368d: Support kiosk_lock_rule and environment support for rules package. Breaks `purchaseAndResolvePolicies` as it changes signature and return format.
+
 ## 0.2.0
 
 ### Minor Changes
