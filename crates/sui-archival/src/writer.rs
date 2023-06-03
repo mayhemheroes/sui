@@ -2,11 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #![allow(dead_code)]
 
-use crate::{
-    create_file_metadata, read_manifest, write_manifest, CheckpointUpdates, FileCompression,
-    FileMetadata, FileType, Manifest, CHECKPOINT_FILE_MAGIC, CHECKPOINT_FILE_SUFFIX,
-    EPOCH_DIR_PREFIX, MAGIC_BYTES, SUMMARY_FILE_MAGIC, SUMMARY_FILE_SUFFIX,
-};
+use crate::{create_file_metadata, read_manifest, write_manifest, CheckpointUpdates, FileCompression, FileMetadata, FileType, Manifest, CHECKPOINT_FILE_MAGIC, CHECKPOINT_FILE_SUFFIX, EPOCH_DIR_PREFIX, MAGIC_BYTES, SUMMARY_FILE_MAGIC, SUMMARY_FILE_SUFFIX, StorageFormat};
 use anyhow::Result;
 use anyhow::{anyhow, Context};
 use byteorder::{BigEndian, ByteOrder};
@@ -58,6 +54,7 @@ struct CheckpointWriter {
     sender: Sender<CheckpointUpdates>,
     checkpoint_buf_offset: usize,
     file_compression: FileCompression,
+    storage_format: StorageFormat,
     manifest: Manifest,
     last_commit_instant: Instant,
     commit_duration: Duration,
@@ -68,6 +65,7 @@ impl CheckpointWriter {
     fn new(
         root_dir_path: PathBuf,
         file_compression: FileCompression,
+        storage_format: StorageFormat,
         sender: Sender<CheckpointUpdates>,
         manifest: Manifest,
         commit_duration: Duration,
@@ -101,13 +99,25 @@ impl CheckpointWriter {
             checkpoint_buf_offset: 0,
             sender,
             file_compression,
+            storage_format,
             manifest,
             last_commit_instant: Instant::now(),
             commit_duration,
             commit_file_size,
         })
     }
+
     pub async fn write(
+        &mut self,
+        checkpoint_contents: CheckpointContents,
+        checkpoint_summary: Checkpoint,
+    ) -> Result<()> {
+        match self.storage_format {
+            StorageFormat::Blob => self.write_as_blob(checkpoint_contents, checkpoint_summary).await
+        }
+    }
+
+    pub async fn write_as_blob(
         &mut self,
         checkpoint_contents: CheckpointContents,
         checkpoint_summary: Checkpoint,
@@ -174,6 +184,7 @@ impl CheckpointWriter {
             &file_path,
             self.file_compression,
             FileType::CheckpointContent,
+            self.storage_format,
             self.epoch_num,
             self.checkpoint_range.clone(),
         )?;
@@ -192,6 +203,7 @@ impl CheckpointWriter {
             &file_path,
             self.file_compression,
             FileType::CheckpointSummary,
+            self.storage_format,
             self.epoch_num,
             self.checkpoint_range.clone(),
         )?;
@@ -271,6 +283,7 @@ impl CheckpointWriter {
 /// simultaneously uploading them to a remote object store
 pub struct ArchiveWriterV1 {
     file_compression: FileCompression,
+    storage_format: StorageFormat,
     local_staging_dir_root: PathBuf,
     local_object_store: Arc<DynObjectStore>,
     remote_object_store: Arc<DynObjectStore>,
@@ -284,12 +297,14 @@ impl ArchiveWriterV1 {
         local_store_config: ObjectStoreConfig,
         remote_store_config: ObjectStoreConfig,
         file_compression: FileCompression,
+        storage_format: StorageFormat,
         commit_duration: Duration,
         commit_file_size: usize,
         registry: &Registry,
     ) -> Result<Self> {
         Ok(ArchiveWriterV1 {
             file_compression,
+            storage_format,
             remote_object_store: remote_store_config.make()?,
             local_object_store: local_store_config.make()?,
             local_staging_dir_root: local_store_config.directory.context("Missing local dir")?,
@@ -312,6 +327,7 @@ impl ArchiveWriterV1 {
             self.local_staging_dir_root.clone(),
             store,
             self.file_compression,
+            self.storage_format,
             self.commit_duration,
             self.commit_file_size,
             sender,
@@ -334,6 +350,7 @@ impl ArchiveWriterV1 {
         local_staging_root_dir: PathBuf,
         store: S,
         file_compression: FileCompression,
+        storage_format: StorageFormat,
         commit_duration: Duration,
         commit_file_size: usize,
         sender: Sender<CheckpointUpdates>,
@@ -365,6 +382,7 @@ impl ArchiveWriterV1 {
         let mut writer = CheckpointWriter::new(
             local_staging_root_dir,
             file_compression,
+            storage_format,
             sender,
             manifest,
             commit_duration,
